@@ -1,0 +1,176 @@
+<!DOCTYPE html>
+<html lang="ja">
+
+<head>
+    <meta charset="UTF-8">
+    <meta http-equiv="X-UA-Compatible" content="IE=edge">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Firebase_version9_RealtimeDB(G'sACADEMY初学者用サンプル)</title>
+    <link rel="stylesheet" href="css/reset.css">
+    <link rel="stylesheet" href="css/style.css">
+</head>
+
+<body>
+
+    <h1>チャットアプリ 💬</h1>
+
+    <div class="settings-container">
+        <label for="bg-select">背景を選択: </label>
+        <select id="bg-select"></select>
+    </div>
+    <div>
+        <div>
+            <input type="text" id="uname" placeholder="名前を入力してください">
+        </div>
+        <div>
+            <textarea id="text" placeholder="文章を入力してください"></textarea>
+        </div>
+        <button id="send">送信</button>
+        <div id="output"></div>
+    </div>
+
+
+    <script src="https://ajax.googleapis.com/ajax/libs/jquery/3.6.0/jquery.min.js"></script>
+    <script type="module">
+        // Import the functions you need from the SDKs you need
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/9.1.0/firebase-app.js";
+        import { getDatabase, ref, push, set, onChildAdded } from "https://www.gstatic.com/firebasejs/9.1.0/firebase-database.js";
+
+        // Your web app's Firebase configuration 
+        const firebaseConfig = {
+            apiKey: "",
+            authDomain: "",
+            projectId: "",
+            storageBucket: "",
+            messagingSenderId: "",
+            appId: ""
+        };
+        const app = initializeApp(firebaseConfig);
+        const db = getDatabase(app); //RealtimeDBに接続
+        const dbRef = ref(db, "chat"); //RealtimeDB内の"chat"を使う
+
+        // --------------------------------------------------
+        // ★★★★★★★★★【追加】背景設定のロジック★★★★★★★★★★★
+        // --------------------------------------------------
+        const bgImages = [];
+        // backgrand01.jpg ~ backgrand11.jpg というファイル名を生成
+        for (let i = 1; i <= 11; i++) {
+            const fileName = `backgrand${String(i).padStart(2, '0')}.jpg`;
+            bgImages.push(fileName);
+        }
+
+        const $bgSelect = $("#bg-select");
+
+        // プルダウンメニューに画像の選択肢を追加
+        bgImages.forEach(imgFile => {
+            $bgSelect.append(`<option value="${imgFile}">${imgFile}</option>`);
+        });
+        
+        // 背景を適用する関数
+        function applyBackground(imageFile) {
+            $('body').css('background-image', `url(img/${imageFile})`);
+        }
+
+        // プルダウンが変更された時のイベント
+        $bgSelect.on("change", function() {
+            const selectedBg = $(this).val();
+            localStorage.setItem("chat_background", selectedBg); // 選択を保存
+            applyBackground(selectedBg);
+        });
+
+        // ページ読み込み時に保存された背景を適用
+        const savedBg = localStorage.getItem("chat_background");
+        if (savedBg && bgImages.includes(savedBg)) {
+            applyBackground(savedBg);
+            $bgSelect.val(savedBg);
+        } else {
+            // 保存された背景がない場合は、1枚目をデフォルトとして適用
+            applyBackground(bgImages[0]);
+        }
+        // --------------------------------------------------
+
+        // 1. ページ読み込み時にlocalStorageから名前を取得して入力欄に設定
+        const savedUname = localStorage.getItem("chat_uname");
+        if (savedUname) {
+            $("#uname").val(savedUname);
+        }
+
+        // 2. 名前入力欄に変更があったらlocalStorageに保存
+        $("#uname").on("change", function() {
+            localStorage.setItem("chat_uname", $(this).val());
+        });
+
+        // 3. 名前から色を生成する関数
+        function nameToColor(name) {
+            let hash = 0;
+            for (let i = 0; i < name.length; i++) {
+                hash = name.charCodeAt(i) + ((hash << 5) - hash);
+            }
+            let color = '#';
+            for (let i = 0; i < 3; i++) {
+                const value = (hash >> (i * 8)) & 0xFF;
+                color += ('00' + value.toString(16)).substr(-2);
+            }
+            return color;
+        }
+        
+        // 4. タイムスタンプを「YYYY/MM/DD HH:MM」形式に変換する関数
+        function formatTimestamp(timestamp) {
+            const date = new Date(timestamp);
+            const yyyy = date.getFullYear();
+            const mm = String(date.getMonth() + 1).padStart(2, '0');
+            const dd = String(date.getDate()).padStart(2, '0');
+            const HH = String(date.getHours()).padStart(2, '0');
+            const MM = String(date.getMinutes()).padStart(2, '0');
+            return `${yyyy}/${mm}/${dd} ${HH}:${MM}`;
+        }
+
+        //データ登録(Click)
+        $("#send").on("click", function () {
+            const uname = $("#uname").val();
+            const text = $("#text").val();
+
+            if (!uname || !text) {
+                alert("名前と文章を入力してください");
+                return;
+            }
+
+            const msg = {
+                uname: uname,
+                text: text,
+                timestamp: Date.now() 
+            };
+            const newPostRef = push(dbRef);
+            set(newPostRef, msg);
+            
+            $("#text").val("");
+        });
+
+        //最初にデータ取得＆onSnapshotでリアルタイムにデータを取得
+        onChildAdded(dbRef, function (data) {
+            const msg = data.val();
+            const key = data.key;
+
+            const myName = localStorage.getItem("chat_uname") || "";
+            const messageSideClass = msg.uname === myName ? "my-message" : "other-message";
+            const nameColor = nameToColor(msg.uname);
+            const formattedTime = formatTimestamp(msg.timestamp);
+
+            let html = `
+                <div class="message-wrapper ${messageSideClass}">
+                    <div class="message-box">
+                        <p class="uname" style="color: ${nameColor};">${msg.uname}</p>
+                        <p class="text">${msg.text}</p>
+                        <p class="timestamp">${formattedTime}</p>
+                    </div>
+                </div>
+            `;
+            $("#output").append(html);
+            
+            $("#output").scrollTop($("#output")[0].scrollHeight);
+        });
+
+    </script>
+</body>
+
+</html>
